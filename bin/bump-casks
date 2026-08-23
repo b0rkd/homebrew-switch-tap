@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Point every cask at the newest upstream release. Idempotent: a cask that is
+# already current is left untouched, so no artifact is downloaded for nothing.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# cask | Forgejo releases API | jq filter picking the macOS asset
+readonly SOURCES=(
+  "eden|https://git.eden-emu.dev/api/v1/repos/eden-emu/eden/releases?limit=1|Eden-macOS-.*\\.dmg$"
+  "ryubing|https://git.ryujinx.app/api/v1/repos/projects/Ryubing/releases?limit=1|macos_universal\\.app\\.tar\\.gz$"
+  "ryubing@canary|https://git.ryujinx.app/api/v1/repos/Ryubing/Canary/releases?limit=1|macos_universal\\.app\\.tar\\.gz$"
+)
+
+# aria2c is far faster on these upstreams and resumes a partial file; curl is
+# the fallback for CI runners, which have no aria2.
+sha_of() {
+  local url=$1 dir
+  if ! command -v aria2c >/dev/null 2>&1; then
+    curl -fsSL "$url" | shasum -a 256 | cut -d' ' -f1
+    return
+  fi
+  dir=$(mktemp -d)
+  trap 'rm -rf "$dir"' RETURN
+  aria2c -x8 -s8 -c -q -d "$dir" -o asset "$url"
+  shasum -a 256 "$dir/asset" | cut -d' ' -f1
+}
+
+bump() {
+  local cask=$1 api=$2 asset_re=$3
+  local release version current url sha
+
+  release=$(curl -fsSL "$api" | jq '.[0]')
+  version=$(jq -r '.tag_name | ltrimstr("v")' <<<"$release")
+  current=$(sed -n 's/^  version "\(.*\)"$/\1/p' "Casks/$cask.rb")
+
+  if [[ "$version" == "$current" ]]; then
+    echo "$cask: $current is current"
+    return
+  fi
+
+  url=$(jq -r --arg re "$asset_re" \
+    '.assets[] | select(.name | test($re)) | .browser_download_url' <<<"$release")
+  [[ -n "$url" ]] || { echo "$cask: no macOS asset in $version" >&2; return 1; }
+
+  sha=$(sha_of "$url")
+  sed -i.bak -E \
+    -e "s|^  version \".*\"$|  version \"$version\"|" \
+    -e "s|^  sha256 \".*\"$|  sha256 \"$sha\"|" \
+    "Casks/$cask.rb"
+  rm -f "Casks/$cask.rb.bak"
+  echo "$cask: $current -> $version"
+}
+
+for source in "${SOURCES[@]}"; do
+  IFS='|' read -r cask api asset_re <<<"$source"
+  bump "$cask" "$api" "$asset_re"
+done
