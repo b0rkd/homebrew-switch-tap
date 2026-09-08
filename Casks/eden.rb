@@ -2,8 +2,7 @@ cask "eden" do
   version "0.2.1"
   sha256 "40575fc79a61550fbb9e332cbae94ccd20f5de20ff61b4b60fe1d42f2525c0b5"
 
-  url "https://git.eden-emu.dev/eden-emu/eden/releases/download/v#{version}/Eden-macOS-v#{version}.dmg",
-      verified: "git.eden-emu.dev/eden-emu/eden/"
+  url "https://git.eden-emu.dev/eden-emu/eden/releases/download/v#{version}/Eden-macOS-v#{version}.dmg"
   name "Eden"
   desc "Nintendo Switch emulator"
   homepage "https://eden-emu.dev/"
